@@ -64,6 +64,13 @@ class Relatorios:
             'Flow Rack': 'Ilha'
         })
 
+        colunas_soma = ['Bipes', 'Unidades', 'Caixas']
+        colunas_identificacao = ['Data separação', 'Hora separação', 'Funcionário', 'Código funcionário']
+
+        df = df.groupby(colunas_identificacao, as_index=False).agg(
+            {**{col: 'sum' for col in colunas_soma}, 'Tempo': 'first', 'Tipo separação': 'first'}
+        )
+
         df['Mes_Ano'] = df['Data separação'].dt.strftime('%m/%Y')
 
         return self.ajustar_data_hora(df)
