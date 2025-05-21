@@ -48,7 +48,6 @@ class Relatorios:
                 'cd_usuario_separacao': 'Código funcionário',
                 'tempo': 'Tempo'
             })
-            .drop(columns=['cd_pessoa_filial'])
             .astype({
                 'Tipo separação': 'string',
                 'Funcionário': 'string',
@@ -63,13 +62,6 @@ class Relatorios:
             'Palete': 'Box',
             'Flow Rack': 'Ilha'
         })
-
-        colunas_soma = ['Bipes', 'Unidades', 'Caixas']
-        colunas_identificacao = ['Data separação', 'Hora separação', 'Funcionário', 'Código funcionário']
-
-        df = df.groupby(colunas_identificacao, as_index=False).agg(
-            {**{col: 'sum' for col in colunas_soma}, 'Tempo': 'first', 'Tipo separação': 'first'}
-        )
 
         df['Mes_Ano'] = df['Data separação'].dt.strftime('%m/%Y')
 
@@ -231,40 +223,77 @@ class Dashboard:
                 st.plotly_chart(fig)
 
     def mostrar_tabela(self, df_filtrado):
+        from datetime import timedelta
+
         col1, col2 = st.columns(2)
-
         lista_colunas_milhar = ['Bipes', 'Unidades', 'Caixas']
+        df_ilha = df_filtrado.copy()
+        df_box = df_filtrado.copy()
 
-        # Editando apresentação da tabela box
-        df_box = df_filtrado[df_filtrado['Tipo separação'] == 'Box']
-        df_box = (df_box.groupby(['Código funcionário', 'Funcionário']).
-                  agg({'Bipes': 'sum', 'Unidades': 'sum', 'Caixas': 'sum', 'Tempo': 'sum'}).
-                  reset_index().sort_values(by='Bipes', ascending=False))
-        df_box['Tempo'] = pd.to_timedelta(df_box['Tempo'], unit='s').apply(lambda x: str(x).split()[-1])
+        df_ilha = df_ilha[df_ilha['Tipo separação'] == 'Ilha']
+        df_box = df_box[df_box['Tipo separação'] == 'Box']
 
-        for i in lista_colunas_milhar:
-            df_box[i] = df_box[i].apply(lambda x: f'{x:,.2f}'.replace(',', 'X').
-                                        replace('.', ',').replace('X', '.'))
+        def calcular_tempo_total(df):
+            from datetime import timedelta
+            dados = []
+            colunas_necessarias = ['cd_pessoa_filial', 'Código funcionário', 'Funcionário', 'Data separação',
+                                   'hora', 'Tempo']
+            if not all(col in df.columns for col in colunas_necessarias) or df.empty:
+                st.warning("Dados insuficientes.")
+                return pd.DataFrame(columns=['Código funcionário', 'Funcionário', 'Tempo'])
 
-        # Editando apresentação da tabela ilha
-        df_ilha = df_filtrado[df_filtrado['Tipo separação'] == 'Ilha']
-        df_ilha = (df_ilha.groupby(['Código funcionário', 'Funcionário']).
-                   agg({'Bipes': 'sum', 'Unidades': 'sum', 'Caixas': 'sum', 'Tempo': 'sum'}).
-                   reset_index().sort_values(by='Bipes', ascending=False))
-        df_ilha['Tempo'] = pd.to_timedelta(df_ilha['Tempo'], unit='s').apply(lambda x: str(x).split()[-1])
+            grupos = df.groupby(['Código funcionário', 'Funcionário'])
 
-        for i in lista_colunas_milhar:
-            df_ilha[i] = df_ilha[i].apply(lambda x: f'{x:,.2f}'.replace(',', 'X').
-                                          replace('.', ',').replace('X', '.'))
+            for (cod_func, nome_func), grupo_func in grupos:
+                tempo_total = timedelta()
+
+                for data, grupo_data in grupo_func.groupby('Data separação'):
+                    for hora, grupo_hora in grupo_data.groupby('hora'):
+                        tempos_unicos = grupo_hora['Tempo'].drop_duplicates()
+                        tempo_total += tempos_unicos.sum()
+
+                dados.append({
+                    'Código funcionário': cod_func,
+                    'Funcionário': nome_func,
+                    'Tempo': tempo_total
+                })
+
+            df_tempo = pd.DataFrame(dados)
+            return df_tempo
+
+        def editar_tabela(df):
+            # Calcula tempo corrigido
+            df_tempo = calcular_tempo_total(df)
+
+            # Soma produtividade por funcionário
+            df_prod = (
+                df.groupby(['Código funcionário', 'Funcionário'])
+                .agg({'Bipes': 'sum', 'Unidades': 'sum', 'Caixas': 'sum'})
+                .reset_index()
+            )
+
+            # Junta tempo com produtividade
+            df_final = df_prod.merge(df_tempo, on=['Código funcionário', 'Funcionário'], how='left')
+
+            # Formata tempo (hh:mm:ss)
+            df_final['Tempo'] = df_final['Tempo'].apply(lambda x: str(x).split()[-1])
+
+            # Formata colunas numéricas com milhar
+            for col in lista_colunas_milhar:
+                df_final[col] = df_final[col].apply(lambda x: f'{x:,.2f}'.replace(',', 'X')
+                                                    .replace('.', ',').replace('X', '.'))
+
+            return df_final.sort_values(by='Bipes', ascending=False)
+
         with st.container(border=True):
             with col1:
                 st.subheader('📋 Produção box')
-                st.dataframe(df_box, use_container_width=True, hide_index=True)
+                st.dataframe(editar_tabela(df_box), use_container_width=True, hide_index=True)
 
         with st.container(border=True):
             with col2:
                 st.subheader('📋 Produção ilha')
-                st.dataframe(df_ilha, use_container_width=True, hide_index=True)
+                st.dataframe(editar_tabela(df_ilha), use_container_width=True, hide_index=True)
 
     def criar_dashboard(self):
 
