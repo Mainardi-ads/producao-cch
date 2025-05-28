@@ -226,7 +226,6 @@ class Dashboard:
         from datetime import timedelta
 
         col1, col2 = st.columns(2)
-        lista_colunas_milhar = ['Bipes', 'Unidades', 'Caixas']
         df_ilha = df_filtrado.copy()
         df_box = df_filtrado.copy()
 
@@ -277,11 +276,6 @@ class Dashboard:
 
             # Formata tempo (hh:mm:ss)
             df_final['Tempo'] = df_final['Tempo'].apply(lambda x: str(x).split()[-1])
-
-            # Formata colunas numéricas com milhar
-            for col in lista_colunas_milhar:
-                df_final[col] = df_final[col].apply(lambda x: f'{x:,.2f}'.replace(',', 'X')
-                                                    .replace('.', ',').replace('X', '.'))
 
             return df_final.sort_values(by='Bipes', ascending=False)
 
